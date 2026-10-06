@@ -294,6 +294,25 @@ export default function IcfExtractor() {
               </p>
             </div>
 
+            {/* Active THL Chapters from Stage 1 Router */}
+            {result.activeChapters && result.activeChapters.length > 0 && (
+              <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Stage 1 -ruuterin aktivoimat THL-pääluokat ({result.activeChapters.length})
+                </h3>
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  {result.activeChapters.map((ch) => (
+                    <span
+                      key={ch}
+                      className="inline-flex items-center rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-800"
+                    >
+                      {ch}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Findings */}
             <div>
               <div className="mb-3 flex items-center justify-between">

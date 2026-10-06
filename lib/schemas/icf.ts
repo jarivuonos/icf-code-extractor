@@ -27,6 +27,10 @@ export const IcfExtractionResponseSchema = z.object({
   summary: z
     .string()
     .describe("Tiivistelmä potilaan keskeisistä toimintakyvyn löydöksistä"),
+  activeChapters: z
+    .array(z.string())
+    .optional()
+    .describe("Stage 1 -ruuterin aktivoimat THL-pääluokat (esim. b1, b7, d4, d5, e1)"),
   findings: z
     .array(IcfFindingSchema)
     .describe("Tekstistä poimitut ICF-luokittelukohtat"),

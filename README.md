@@ -6,32 +6,38 @@ The system analyzes medical and physiotherapy assessments written under the **To
 
 ---
 
-## Workflow Diagram
+## Architecture: Complete 30-Chapter Two-Stage Router
 
-The diagram below shows how a clinical note is transformed into structured ICF findings:
+The app implements a **Two-Stage Hierarchical Router** covering all **30 Tier 1 Chapters** of the official THL ICF Classification (`1.2.246.537.6.48` in Koodistopalvelu Kanta):
 
 ```mermaid
 flowchart TD
-    A["1. Clinical Assessment Note\n(Finnish 'Toimintakyky' text)"] --> B["2. Next.js Server Action\n(app/actions/extract-icf.ts)"]
+    Note["1. Clinical Assessment Note\n(Finnish 'Toimintakyky' text)"] --> S1
 
-    subgraph Evaluation ["AI Decision & Classification Engine"]
-        B --> C["TypeSafe System One\n(Jev API: jev-latest)"]
-        D["ICF Question Catalog\n(lib/jev/catalog.ts)"] --> C
-        C --> E["Calibrated Answers\n- Qualifier: 0 to 4\n- Confidence Score\n- Not Mentioned Filter"]
+    subgraph Stage1 ["Stage 1: Complete 30-Chapter THL Router (Jev API: jev-latest)"]
+        S1["Router evaluates all 30 THL Tier 1 Chapters:\n- b1..b8 (Body Functions)\n- s1..s8 (Body Structures)\n- d1..d9 (Activities & Participation)\n- e1..e5 (Environmental Factors)"]
+        S1 --> Gate{"Probability >= 0.60?"}
     end
 
-    subgraph EvidenceAndFormatting ["Evidence Grounding & Structuring"]
-        A --> F["Verbatim Evidence Extractor\n(lib/jev/client.ts)"]
-        E --> F
-        F --> G["Verbatim Quote Extraction\n(exact sentence from text)"]
-        G --> H["Structured Finding Assembly\n- ICF Code e.g. b144, d450\n- THL Title\n- Qualifier 0-4\n- Evidence Text\n- Clinical Reasoning"]
-        H --> I["Overall Clinical Summary"]
+    Gate -- No --> Ignore["Ignore inactive chapters\n(~20-25 chapters pruned instantly)"]
+    Gate -- Yes --> S2
+
+    subgraph Stage2 ["Stage 2: Parallel Level-2 Evaluation (Promise.all)"]
+        S2["Active Chapter Questionnaires executed concurrently:\n- b-functions (lib/jev/chapters/b-functions.ts)\n- s-structures (lib/jev/chapters/s-structures.ts)\n- d-activities (lib/jev/chapters/d-activities.ts)\n- e-environment (lib/jev/chapters/e-environment.ts)"]
+        S2 --> Answers["Calibrated ICF Qualifiers (0 to 4)\nwith Exact Confidence Scores"]
+    end
+
+    subgraph EvidenceAndOutput ["Stage 3: Evidence Grounding & Presentation"]
+        Note --> Verbatim["Verbatim Quote Extractor\n(lib/jev/client.ts)"]
+        Answers --> Verbatim
+        Verbatim --> Output["Structured Findings Assembly\n- ICF Code (e.g. b144, d450, e115, e225)\n- Official THL Finnish Title\n- Qualifier 0-4\n- Exact Evidence Quote\n- AI Clinical Reasoning"]
+        Output --> Summary["Clinical Summary & Active Chapter Badges"]
     end
 
     subgraph ClientUI ["Interactive Review UI (app/components/IcfExtractor.tsx)"]
-        I --> J["Summary Banner"]
-        H --> K["Findings Grid & Badges\n(Domain color, Severity indicator)"]
-        K --> L["Interactive Review\n(Accept / Reject Checkboxes)"]
+        Summary --> J["Summary Banner & Active Chapters Strip"]
+        Output --> K["Findings Grid & Domain Badges (b, s, d, e)"]
+        K --> L["Interactive Review (Accept / Reject Checkboxes)"]
         L --> M["JSON Export / Clipboard"]
     end
 ```
@@ -41,24 +47,19 @@ flowchart TD
 ## How It Works (Step-by-Step)
 
 1. **Input Submission:**  
-   The user inputs or loads a Finnish functional capacity evaluation note into the UI (`app/components/IcfExtractor.tsx`) and submits the form.
+   The user enters or loads a Finnish functional capacity evaluation note into the UI (`app/components/IcfExtractor.tsx`) and submits the form.
 
-2. **Server Action Dispatch:**  
-   A Next.js Server Action (`app/actions/extract-icf.ts`) receives the text and invokes the TypeSafe Jev client (`lib/jev/client.ts`).
+2. **Stage 1 (30-Chapter Router):**  
+   The Server Action (`app/actions/extract-icf.ts`) sends the note to TypeSafe System One (`jev-latest`) with a 30-question router schema covering all chapters (`b1`–`b8`, `s1`–`s8`, `d1`–`d9`, `e1`–`e5`). The model computes presence probabilities in ~1 second. Any chapter with $p \ge 0.60$ is activated.
 
-3. **Classification via TypeSafe System One (Jev):**  
-   The clinical text is sent to the Jev model (`jev-latest`) alongside a catalog of targeted clinical questions (`lib/jev/catalog.ts`) covering key ICF areas:
-   - **`b` – Body functions:** Memory (`b144`), muscle power (`b730`), balance/postural control (`b755`), pain (`b280`).
-   - **`d` – Activities & Participation:** Changing position (`d410`), walking (`d450`), stairs (`d455`), personal hygiene (`d510`, `d520`, `d540`), domestic life (`d640`), community mobility (`d620`).
-   - **`e` – Environmental factors:** Mobility aids (`e1151`), architectural supports/railings (`e150`).
-   
-   The model evaluates each domain against calibrated clinical criteria to determine whether an issue exists and assigns an ICF qualifier (0 = no problem, 1 = mild, 2 = moderate, 3 = severe, 4 = complete).
+3. **Stage 2 (Parallel Level-2 Evaluation):**  
+   The system retrieves the targeted Level-2 question catalogs for the activated chapters and executes them concurrently using `Promise.all()`. Questions are evaluated against calibrated clinical criteria to determine exact ICF qualifiers (0 = no problem, 1 = mild, 2 = moderate, 3 = severe, 4 = complete; negative values for environmental barriers).
 
 4. **Verbatim Evidence Grounding:**  
-   For each confirmed ICF finding, the extractor searches the original assessment text for the exact sentence or clause providing evidence for the finding, ensuring every code is anchored to the text without hallucinations.
+   For every confirmed ICF finding, the extractor searches the original clinical text for the exact sentence or clause providing supporting evidence, ensuring full transparency.
 
 5. **Presentation & Export:**  
-   The findings are displayed with domain-specific badges (`b` = blue, `d` = purple, `e` = orange) and severity color coding (green 0–1, yellow 2, red 3–4). Clinicians can review, accept, or reject specific codes, and copy the final structured JSON payload to the clipboard.
+   The findings are displayed with domain badges (`b` = blue, `s` = amber, `d` = purple, `e` = orange), active chapter tags, and severity color coding. Clinicians can review, accept, or reject specific codes, and copy the final filtered JSON payload to the clipboard.
 
 ---
 
@@ -90,19 +91,25 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ```
 ├── app/
 │   ├── actions/
-│   │   └── extract-icf.ts       # Server Action routing to Jev / OpenAI
+│   │   └── extract-icf.ts          # Server Action routing to Jev / OpenAI
 │   ├── components/
-│   │   └── IcfExtractor.tsx     # Client UI with evidence tags & checklist
-│   ├── layout.tsx               # Root layout & page metadata
-│   └── page.tsx                 # Main entry page
+│   │   └── IcfExtractor.tsx        # Client UI with evidence tags & checklist
+│   ├── layout.tsx                  # Root layout & page metadata
+│   └── page.tsx                    # Main entry page
 ├── lib/
 │   ├── constants/
-│   │   ├── icf-rules.ts         # THL guidelines prompt & sample text
-│   │   └── jev-icf-catalog.ts   # ICF domain definitions for Jev
+│   │   └── icf-rules.ts            # THL guidelines prompt & sample text
 │   ├── jev/
-│   │   ├── catalog.ts           # Question schema & criteria for Jev
-│   │   └── client.ts            # TypeSafe Jev API caller & evidence extractor
+│   │   ├── catalog.ts              # Core types & definitions
+│   │   ├── router-schema.ts        # Complete 30-Chapter Tier 1 Router Schema
+│   │   ├── chapters/               # Modular Level-2 Catalogs by Component
+│   │   │   ├── b-functions.ts      # Chapters b1..b8
+│   │   │   ├── s-structures.ts     # Chapters s1..s8
+│   │   │   ├── d-activities.ts     # Chapters d1..d9
+│   │   │   ├── e-environment.ts    # Chapters e1..e5
+│   │   │   └── registry.ts         # Unified 30-chapter registry
+│   │   └── client.ts               # Two-Stage Router client & evidence grounding
 │   └── schemas/
-│       └── icf.ts               # Zod schemas for structured responses
-└── .env.local                   # API keys configuration
+│       └── icf.ts                  # Zod schemas for structured responses
+└── .env.local                      # API keys configuration
 ```
